@@ -1,2 +1,2 @@
 # mysql
-ansible-vault encrypt vars.yml
+ansible-vault encrypt vars_file.yml

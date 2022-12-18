@@ -1,2 +1,2 @@
 [target]
-172.31.46.70 ansible_user=ubuntu
+ ansible_user=ubuntu

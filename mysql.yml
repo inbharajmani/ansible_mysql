@@ -1,0 +1,138 @@
+- name: MySQL installation playbook for Ubuntu 22.04
+  hosts: all
+  become: yes
+  vars_files: /root/ansible/vars_file.yml 
+  #Get user inputs for password variables
+  
+  tasks:
+  # Installation
+    - name: MySQL Installation 
+      apt: 
+       name: 
+           - mysql-server
+           - python3-mysqldb
+       state: present 
+       update_cache: yes
+
+    - name: Starts and Enables MySQL service
+      service:
+       name: mysql
+       state: started
+       enabled: yes
+
+  # Configuration
+    - name: Sets root password
+      mysql_user:
+        name: root
+        password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+      no_log: True
+
+    - name: Removes all anonymous user accounts
+      mysql_user:
+        name: ''
+        host_all: yes
+        state: absent
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+      no_log: True
+
+    - name: Drops MySQL test database
+      mysql_db:
+        name: test
+        state: absent
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+      no_log: True
+
+  # User Creation
+    - name: MySQL User creation - Sammy user created with All privileges
+      mysql_user:
+        name: sammy
+        host: localhost
+        password: "{{ mysql_user_password }}"
+        priv: '*.*:ALL'
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+      no_log: True
+     
+    - name: Flush priveleges
+      command: mysql -u root -e 'FLUSH PRIVILEGES' -p{{ mysql_root_password }}
+      no_log: True
+
+  # Testing MySQL
+    - name: Check Mysql Users
+      command: mysqladmin -p{{ mysql_user_password }} -u sammy version
+      register: find_output
+      no_log: True
+
+    - name: Debugmode to get the output of previous module
+      debug:
+       var: find_output.stdout_lines
+    
+    # Moving the MySQL data directory
+    - name: Stop MySQL service
+      service:
+       name: mysql
+       state: stopped
+
+    - name: Rsync to copy MySQL data to new_directory
+      command: rsync -a /var/lib/mysql /tmp
+   
+    - name: Take a backup of old_directory
+      command: mv /var/lib/mysql /var/lib/mysql.bak
+  
+        # Pointing datadir to new location
+    - name: Change datadir in mysqld.conf file  
+      lineinfile:  
+       dest: /etc/mysql/mysql.conf.d/mysqld.cnf 
+       line: datadir=/tmp/mysql
+       state: present  
+       create: yes  
+
+  # Configuring Apparmor
+    - name: Change datadir in /etc/apparmor.d/tunables/alias file  
+      lineinfile:  
+       dest: /etc/apparmor.d/tunables/alias 
+       line: alias /var/lib/mysql/ -> /tmp/mysql/,
+       state: present  
+       create: yes
+
+    - name: Restart Apparmor service
+      service:
+       name: apparmor
+       state: restarted
+       enabled: yes
+
+  # Restarting MySQL
+    - name: Creates directory
+      file:
+       path: "/var/lib/mysql/mysql"
+       state: directory
+   
+    - name: Restart MySQL service
+      service:
+       name: mysql
+       state: restarted
+       enabled: yes
+
+    - name: Deletes MySQL old_directory
+      file:
+       path: "/var/lib/mysql.bak"
+       state: absent
+    
+    - name: Restart MySQL service again
+      service:
+       name: mysql
+       state: restarted
+       enabled: yes
+
+    - name: Check current/updated MySQl data directory
+      command: mysql -u sammy -p{{ mysql_user_password }} -e "select @@Datadir"
+      register: find_output
+      no_log: True
+    
+    - name: Debugmode to get the output of previous module
+      debug:
+       var: find_output.stdout_lines
